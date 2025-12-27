@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Header from './components/Header'
 import MenuCard from './components/MenuCard'
 import ShoppingCart from './components/ShoppingCart'
+import AdminDashboard from './components/AdminDashboard'
+import InventoryStatus from './components/InventoryStatus'
+import OrderStatus from './components/OrderStatus'
 import './App.css'
 
 // 임시 메뉴 데이터
@@ -53,6 +56,15 @@ const initialMenus = [
 function App() {
   const [currentPage, setCurrentPage] = useState('order')
   const [cartItems, setCartItems] = useState([])
+  const [orders, setOrders] = useState([])
+  const [inventory, setInventory] = useState(() => {
+    // 초기 재고 설정 (각 메뉴당 10개)
+    const initialInventory = {}
+    initialMenus.forEach(menu => {
+      initialInventory[menu.id] = 10
+    })
+    return initialInventory
+  })
 
   const handleAddToCart = (item) => {
     // 같은 메뉴와 옵션 조합이 있는지 확인
@@ -91,10 +103,55 @@ function App() {
       return
     }
 
-    // 주문 처리 (나중에 서버 연동)
+    // 총 금액 계산
+    const totalAmount = cartItems.reduce((total, item) => {
+      let price = item.basePrice
+      if (item.options.addShot) price += 500
+      return total + (price * item.quantity)
+    }, 0)
+
+    // 주문 생성
+    const newOrder = {
+      id: Date.now(),
+      orderDate: new Date().toISOString(),
+      items: cartItems.map(item => ({
+        menuId: item.menuId,
+        menuName: item.menuName,
+        options: item.options,
+        quantity: item.quantity,
+        price: item.basePrice + (item.options.addShot ? 500 : 0)
+      })),
+      totalAmount,
+      status: 'received' // 초기 상태: 주문 접수
+    }
+
+    setOrders([newOrder, ...orders])
     alert('주문이 완료되었습니다!')
     setCartItems([])
   }
+
+  const handleUpdateOrderStatus = (orderId, newStatus) => {
+    setOrders(orders.map(order => 
+      order.id === orderId ? { ...order, status: newStatus } : order
+    ))
+  }
+
+  const handleUpdateInventory = (menuId, newStock) => {
+    setInventory({
+      ...inventory,
+      [menuId]: newStock
+    })
+  }
+
+  // 주문 통계 계산
+  const orderStats = useMemo(() => {
+    return {
+      total: orders.length,
+      received: orders.filter(o => o.status === 'received').length,
+      inProgress: orders.filter(o => o.status === 'in_progress').length,
+      completed: orders.filter(o => o.status === 'completed').length
+    }
+  }, [orders])
 
   return (
     <div className="App">
@@ -128,7 +185,16 @@ function App() {
 
       {currentPage === 'admin' && (
         <div className="admin-page">
-          <p>관리자 화면은 준비 중입니다.</p>
+          <AdminDashboard stats={orderStats} />
+          <InventoryStatus 
+            menus={initialMenus}
+            inventory={inventory}
+            onUpdateInventory={handleUpdateInventory}
+          />
+          <OrderStatus 
+            orders={orders}
+            onUpdateOrderStatus={handleUpdateOrderStatus}
+          />
         </div>
       )}
     </div>
