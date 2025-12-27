@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import './MenuCard.css'
 
-function MenuCard({ menu, onAddToCart }) {
+function MenuCard({ menu, onAddToCart, inventory = 0 }) {
   const [addShot, setAddShot] = useState(false)
   const [addSyrup, setAddSyrup] = useState(false)
 
@@ -20,6 +20,8 @@ function MenuCard({ menu, onAddToCart }) {
     setAddShot(false)
     setAddSyrup(false)
   }
+
+  const isOutOfStock = inventory <= 0
 
   return (
     <div className="menu-card">
@@ -52,8 +54,12 @@ function MenuCard({ menu, onAddToCart }) {
             <span>시럽 추가 (+0원)</span>
           </label>
         </div>
-        <button className="add-to-cart-btn" onClick={handleAddToCart}>
-          담기
+        <button 
+          className="add-to-cart-btn" 
+          onClick={handleAddToCart}
+          disabled={isOutOfStock}
+        >
+          {isOutOfStock ? '품절' : '담기'}
         </button>
       </div>
     </div>

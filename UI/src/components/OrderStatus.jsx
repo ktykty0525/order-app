@@ -56,7 +56,10 @@ function OrderStatus({ orders, onUpdateOrderStatus }) {
     }
   }
 
-  const filteredOrders = orders.filter(order => order.status !== 'completed' || orders.length <= 10)
+  // 완료된 주문은 최대 10개까지만 표시, 나머지는 미완료 주문만 표시
+  const completedOrders = orders.filter(order => order.status === 'completed').slice(0, 10)
+  const activeOrders = orders.filter(order => order.status !== 'completed')
+  const filteredOrders = [...activeOrders, ...completedOrders]
 
   return (
     <div className="order-status">

@@ -92,8 +92,16 @@
   transition: all 0.2s;
 }
 
-.add-to-cart-btn:hover {
+.add-to-cart-btn:hover:not(:disabled) {
   background-color: #2563eb;
   color: white;
+}
+
+.add-to-cart-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #f3f4f6;
+  border-color: #9ca3af;
+  color: #9ca3af;
 }
 

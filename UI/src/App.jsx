@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import Header from './components/Header'
 import MenuCard from './components/MenuCard'
 import ShoppingCart from './components/ShoppingCart'
 import AdminDashboard from './components/AdminDashboard'
 import InventoryStatus from './components/InventoryStatus'
 import OrderStatus from './components/OrderStatus'
+import Toast from './components/Toast'
 import './App.css'
 
 // 임시 메뉴 데이터
@@ -57,6 +58,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState('order')
   const [cartItems, setCartItems] = useState([])
   const [orders, setOrders] = useState([])
+  const [toast, setToast] = useState(null)
   const [inventory, setInventory] = useState(() => {
     // 초기 재고 설정 (각 메뉴당 10개)
     const initialInventory = {}
@@ -66,7 +68,27 @@ function App() {
     return initialInventory
   })
 
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type })
+  }
+
   const handleAddToCart = (item) => {
+    // 재고 확인
+    const currentStock = inventory[item.menuId] || 0
+    const existingItem = cartItems.find(
+      cartItem =>
+        cartItem.menuId === item.menuId &&
+        cartItem.options.addShot === item.options.addShot &&
+        cartItem.options.addSyrup === item.options.addSyrup
+    )
+    
+    const currentQuantity = existingItem ? existingItem.quantity : 0
+    
+    if (currentStock <= currentQuantity) {
+      showToast('재고가 부족합니다.', 'error')
+      return
+    }
+
     // 같은 메뉴와 옵션 조합이 있는지 확인
     const existingItemIndex = cartItems.findIndex(
       cartItem =>
@@ -80,26 +102,59 @@ function App() {
       const updatedCart = [...cartItems]
       updatedCart[existingItemIndex].quantity += 1
       setCartItems(updatedCart)
+      showToast('장바구니에 추가되었습니다.', 'success')
     } else {
       // 없으면 새로 추가
-      setCartItems([...cartItems, { ...item, quantity: 1 }])
+      const cartItemId = `${item.menuId}-${item.options.addShot}-${item.options.addSyrup}-${Date.now()}`
+      setCartItems([...cartItems, { ...item, id: cartItemId, quantity: 1 }])
+      showToast('장바구니에 추가되었습니다.', 'success')
     }
   }
 
-  const handleUpdateQuantity = (index, newQuantity) => {
-    const updatedCart = [...cartItems]
-    updatedCart[index].quantity = newQuantity
+  const handleUpdateQuantity = (itemId, newQuantity) => {
+    if (newQuantity <= 0) {
+      handleRemoveItem(itemId)
+      return
+    }
+
+    const item = cartItems.find(cartItem => cartItem.id === itemId)
+    if (!item) return
+
+    // 재고 확인
+    const currentStock = inventory[item.menuId] || 0
+    if (newQuantity > currentStock) {
+      showToast('재고가 부족합니다.', 'error')
+      return
+    }
+
+    const updatedCart = cartItems.map(cartItem =>
+      cartItem.id === itemId ? { ...cartItem, quantity: newQuantity } : cartItem
+    )
     setCartItems(updatedCart)
   }
 
-  const handleRemoveItem = (index) => {
-    const updatedCart = cartItems.filter((_, i) => i !== index)
+  const handleRemoveItem = (itemId) => {
+    const updatedCart = cartItems.filter(cartItem => cartItem.id !== itemId)
     setCartItems(updatedCart)
   }
 
   const handleOrder = () => {
     if (cartItems.length === 0) {
-      alert('장바구니가 비어있습니다.')
+      showToast('장바구니가 비어있습니다.', 'warning')
+      return
+    }
+
+    // 재고 확인
+    const stockIssues = []
+    cartItems.forEach(item => {
+      const currentStock = inventory[item.menuId] || 0
+      if (currentStock < item.quantity) {
+        stockIssues.push(item.menuName)
+      }
+    })
+
+    if (stockIssues.length > 0) {
+      showToast(`${stockIssues.join(', ')}의 재고가 부족합니다.`, 'error')
       return
     }
 
@@ -109,6 +164,13 @@ function App() {
       if (item.options.addShot) price += 500
       return total + (price * item.quantity)
     }, 0)
+
+    // 재고 차감
+    const updatedInventory = { ...inventory }
+    cartItems.forEach(item => {
+      updatedInventory[item.menuId] = (updatedInventory[item.menuId] || 0) - item.quantity
+    })
+    setInventory(updatedInventory)
 
     // 주문 생성
     const newOrder = {
@@ -126,7 +188,7 @@ function App() {
     }
 
     setOrders([newOrder, ...orders])
-    alert('주문이 완료되었습니다!')
+    showToast('주문이 완료되었습니다!', 'success')
     setCartItems([])
   }
 
@@ -153,8 +215,20 @@ function App() {
     }
   }, [orders])
 
+  // 주문 정렬 (최신순)
+  const sortedOrders = useMemo(() => {
+    return [...orders].sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
+  }, [orders])
+
   return (
     <div className="App">
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
       <Header currentPage={currentPage} onPageChange={setCurrentPage} />
       
       {currentPage === 'order' && (
@@ -166,6 +240,7 @@ function App() {
                 <MenuCard
                   key={menu.id}
                   menu={menu}
+                  inventory={inventory[menu.id] || 0}
                   onAddToCart={handleAddToCart}
                 />
               ))}
@@ -192,7 +267,7 @@ function App() {
             onUpdateInventory={handleUpdateInventory}
           />
           <OrderStatus 
-            orders={orders}
+            orders={sortedOrders}
             onUpdateOrderStatus={handleUpdateOrderStatus}
           />
         </div>

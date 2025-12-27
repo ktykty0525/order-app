@@ -18,15 +18,21 @@ function ShoppingCart({ cartItems, onOrder, onUpdateQuantity, onRemoveItem }) {
     return optionList.length > 0 ? ` (${optionList.join(', ')})` : ''
   }
 
-  const handleIncrease = (index) => {
-    onUpdateQuantity(index, cartItems[index].quantity + 1)
+  const handleIncrease = (itemId) => {
+    const item = cartItems.find(cartItem => cartItem.id === itemId)
+    if (item) {
+      onUpdateQuantity(itemId, item.quantity + 1)
+    }
   }
 
-  const handleDecrease = (index) => {
-    if (cartItems[index].quantity > 1) {
-      onUpdateQuantity(index, cartItems[index].quantity - 1)
-    } else {
-      onRemoveItem(index)
+  const handleDecrease = (itemId) => {
+    const item = cartItems.find(cartItem => cartItem.id === itemId)
+    if (item) {
+      if (item.quantity > 1) {
+        onUpdateQuantity(itemId, item.quantity - 1)
+      } else {
+        onRemoveItem(itemId)
+      }
     }
   }
 
@@ -38,10 +44,10 @@ function ShoppingCart({ cartItems, onOrder, onUpdateQuantity, onRemoveItem }) {
           {cartItems.length === 0 ? (
             <p className="empty-cart">장바구니가 비어있습니다.</p>
           ) : (
-            cartItems.map((item, index) => {
+            cartItems.map((item) => {
               const unitPrice = item.basePrice + (item.options.addShot ? 500 : 0)
               return (
-                <div key={index} className="cart-item">
+                <div key={item.id || item.menuId} className="cart-item">
                   <div className="item-info">
                     <span className="item-name">
                       {item.menuName}{formatOptions(item.options)}
@@ -55,7 +61,7 @@ function ShoppingCart({ cartItems, onOrder, onUpdateQuantity, onRemoveItem }) {
                   <div className="quantity-controls">
                     <button 
                       className="quantity-btn" 
-                      onClick={() => handleDecrease(index)}
+                      onClick={() => handleDecrease(item.id || item.menuId)}
                       aria-label="수량 감소"
                     >
                       -
@@ -63,7 +69,7 @@ function ShoppingCart({ cartItems, onOrder, onUpdateQuantity, onRemoveItem }) {
                     <span className="quantity-display">{item.quantity}</span>
                     <button 
                       className="quantity-btn" 
-                      onClick={() => handleIncrease(index)}
+                      onClick={() => handleIncrease(item.id || item.menuId)}
                       aria-label="수량 증가"
                     >
                       +
