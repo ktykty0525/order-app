@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useCallback } from 'react'
 import Header from './components/Header'
 import MenuCard from './components/MenuCard'
 import ShoppingCart from './components/ShoppingCart'
@@ -6,82 +6,37 @@ import AdminDashboard from './components/AdminDashboard'
 import InventoryStatus from './components/InventoryStatus'
 import OrderStatus from './components/OrderStatus'
 import Toast from './components/Toast'
+import { useMenus } from './hooks/useMenus'
+import { useOrders } from './hooks/useOrders'
+import { menuAPI, orderAPI } from './api/api'
 import './App.css'
-
-// 임시 메뉴 데이터
-const initialMenus = [
-  {
-    id: 1,
-    name: '아메리카노(ICE)',
-    price: 4000,
-    description: '시원한 아이스 아메리카노',
-    imageUrl: 'https://images.unsplash.com/photo-1517487881594-2787fef5ebf7?w=400&h=300&fit=crop&q=80'
-  },
-  {
-    id: 2,
-    name: '아메리카노(HOT)',
-    price: 4000,
-    description: '따뜻한 핫 아메리카노',
-    imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=400&h=300&fit=crop&q=80'
-  },
-  {
-    id: 3,
-    name: '카페라떼',
-    price: 5000,
-    description: '부드러운 우유와 에스프레소의 조화',
-    imageUrl: 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=400&h=300&fit=crop&q=80'
-  },
-  {
-    id: 4,
-    name: '카푸치노',
-    price: 5000,
-    description: '우유 거품이 올라간 카푸치노',
-    imageUrl: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=400&h=300&fit=crop&q=80'
-  },
-  {
-    id: 5,
-    name: '바닐라라떼',
-    price: 5500,
-    description: '바닐라 시럽이 들어간 달콤한 라떼',
-    imageUrl: 'https://images.unsplash.com/photo-1570968914863-9a7b11898539?w=400&h=300&fit=crop&q=80'
-  },
-  {
-    id: 6,
-    name: '카라멜마키아토',
-    price: 6000,
-    description: '카라멜 시럽과 우유의 달콤한 조합',
-    imageUrl: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=400&h=300&fit=crop&q=80'
-  }
-]
 
 function App() {
   const [currentPage, setCurrentPage] = useState('order')
   const [cartItems, setCartItems] = useState([])
-  const [orders, setOrders] = useState([])
   const [toast, setToast] = useState(null)
-  const [inventory, setInventory] = useState(() => {
-    // 초기 재고 설정 (각 메뉴당 10개)
-    const initialInventory = {}
-    initialMenus.forEach(menu => {
-      initialInventory[menu.id] = 10
-    })
-    return initialInventory
-  })
+  
+  const { menus, inventory, loading, refreshMenus } = useMenus()
+  const { orders, stats, loadOrders } = useOrders(currentPage === 'admin')
 
-  const showToast = (message, type = 'info') => {
+  const showToast = useCallback((message, type = 'info') => {
     setToast({ message, type })
-  }
+  }, [])
 
-  const handleAddToCart = (item) => {
-    // 재고 확인
-    const currentStock = inventory[item.menuId] || 0
-    const existingItem = cartItems.find(
+  // 장바구니 아이템 찾기 헬퍼
+  const findCartItem = useCallback((item) => {
+    return cartItems.find(
       cartItem =>
         cartItem.menuId === item.menuId &&
         cartItem.options.addShot === item.options.addShot &&
         cartItem.options.addSyrup === item.options.addSyrup
     )
-    
+  }, [cartItems])
+
+  const handleAddToCart = useCallback((item) => {
+    // 재고 확인
+    const currentStock = inventory[item.menuId] || 0
+    const existingItem = findCartItem(item)
     const currentQuantity = existingItem ? existingItem.quantity : 0
     
     if (currentStock <= currentQuantity) {
@@ -99,19 +54,21 @@ function App() {
 
     if (existingItemIndex !== -1) {
       // 이미 있으면 수량 증가
-      const updatedCart = [...cartItems]
-      updatedCart[existingItemIndex].quantity += 1
-      setCartItems(updatedCart)
+      setCartItems(prev => {
+        const updated = [...prev]
+        updated[existingItemIndex].quantity += 1
+        return updated
+      })
       showToast('장바구니에 추가되었습니다.', 'success')
     } else {
       // 없으면 새로 추가
       const cartItemId = `${item.menuId}-${item.options.addShot}-${item.options.addSyrup}-${Date.now()}`
-      setCartItems([...cartItems, { ...item, id: cartItemId, quantity: 1 }])
+      setCartItems(prev => [...prev, { ...item, id: cartItemId, quantity: 1 }])
       showToast('장바구니에 추가되었습니다.', 'success')
     }
-  }
+  }, [cartItems, inventory, findCartItem, showToast])
 
-  const handleUpdateQuantity = (itemId, newQuantity) => {
+  const handleUpdateQuantity = useCallback((itemId, newQuantity) => {
     if (newQuantity <= 0) {
       handleRemoveItem(itemId)
       return
@@ -127,98 +84,78 @@ function App() {
       return
     }
 
-    const updatedCart = cartItems.map(cartItem =>
+    setCartItems(prev => prev.map(cartItem =>
       cartItem.id === itemId ? { ...cartItem, quantity: newQuantity } : cartItem
-    )
-    setCartItems(updatedCart)
-  }
+    ))
+  }, [cartItems, inventory, showToast])
 
-  const handleRemoveItem = (itemId) => {
-    const updatedCart = cartItems.filter(cartItem => cartItem.id !== itemId)
-    setCartItems(updatedCart)
-  }
+  const handleRemoveItem = useCallback((itemId) => {
+    setCartItems(prev => prev.filter(cartItem => cartItem.id !== itemId))
+  }, [])
 
-  const handleOrder = () => {
+  // 총 금액 계산 헬퍼
+  const calculateItemPrice = useCallback((item) => {
+    return item.basePrice + (item.options.addShot ? 500 : 0)
+  }, [])
+
+  const handleOrder = useCallback(async () => {
     if (cartItems.length === 0) {
       showToast('장바구니가 비어있습니다.', 'warning')
       return
     }
 
-    // 재고 확인
-    const stockIssues = []
-    cartItems.forEach(item => {
-      const currentStock = inventory[item.menuId] || 0
-      if (currentStock < item.quantity) {
-        stockIssues.push(item.menuName)
-      }
-    })
-
-    if (stockIssues.length > 0) {
-      showToast(`${stockIssues.join(', ')}의 재고가 부족합니다.`, 'error')
-      return
-    }
-
     // 총 금액 계산
     const totalAmount = cartItems.reduce((total, item) => {
-      let price = item.basePrice
-      if (item.options.addShot) price += 500
-      return total + (price * item.quantity)
+      return total + (calculateItemPrice(item) * item.quantity)
     }, 0)
 
-    // 재고 차감
-    const updatedInventory = { ...inventory }
-    cartItems.forEach(item => {
-      updatedInventory[item.menuId] = (updatedInventory[item.menuId] || 0) - item.quantity
-    })
-    setInventory(updatedInventory)
-
-    // 주문 생성
-    const newOrder = {
-      id: Date.now(),
-      orderDate: new Date().toISOString(),
+    // 주문 데이터 준비
+    const orderData = {
       items: cartItems.map(item => ({
         menuId: item.menuId,
         menuName: item.menuName,
         options: item.options,
         quantity: item.quantity,
-        price: item.basePrice + (item.options.addShot ? 500 : 0)
+        price: calculateItemPrice(item)
       })),
-      totalAmount,
-      status: 'received' // 초기 상태: 주문 접수
+      totalAmount
     }
 
-    setOrders([newOrder, ...orders])
-    showToast('주문이 완료되었습니다!', 'success')
-    setCartItems([])
-  }
-
-  const handleUpdateOrderStatus = (orderId, newStatus) => {
-    setOrders(orders.map(order => 
-      order.id === orderId ? { ...order, status: newStatus } : order
-    ))
-  }
-
-  const handleUpdateInventory = (menuId, newStock) => {
-    setInventory({
-      ...inventory,
-      [menuId]: newStock
-    })
-  }
-
-  // 주문 통계 계산
-  const orderStats = useMemo(() => {
-    return {
-      total: orders.length,
-      received: orders.filter(o => o.status === 'received').length,
-      inProgress: orders.filter(o => o.status === 'in_progress').length,
-      completed: orders.filter(o => o.status === 'completed').length
+    try {
+      // 서버에 주문 생성 요청
+      await orderAPI.createOrder(orderData)
+      
+      // 메뉴 목록 다시 로드 (재고 업데이트)
+      await refreshMenus()
+      
+      showToast('주문이 완료되었습니다!', 'success')
+      setCartItems([])
+    } catch (error) {
+      showToast(error.message || '주문 생성 중 오류가 발생했습니다.', 'error')
+      console.error('주문 생성 오류:', error)
     }
-  }, [orders])
+  }, [cartItems, calculateItemPrice, refreshMenus, showToast])
 
-  // 주문 정렬 (최신순)
-  const sortedOrders = useMemo(() => {
-    return [...orders].sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
-  }, [orders])
+  const handleUpdateOrderStatus = useCallback(async (orderId, newStatus) => {
+    try {
+      await orderAPI.updateOrderStatus(orderId, newStatus)
+      await loadOrders()
+      showToast('주문 상태가 변경되었습니다.', 'success')
+    } catch (error) {
+      showToast(error.message || '주문 상태 변경 중 오류가 발생했습니다.', 'error')
+      console.error('주문 상태 변경 오류:', error)
+    }
+  }, [loadOrders, showToast])
+
+  const handleUpdateInventory = useCallback(async (menuId, newStock) => {
+    try {
+      await menuAPI.updateStock(menuId, newStock)
+      await refreshMenus()
+    } catch (error) {
+      showToast(error.message || '재고 수정 중 오류가 발생했습니다.', 'error')
+      console.error('재고 수정 오류:', error)
+    }
+  }, [refreshMenus, showToast])
 
   return (
     <div className="App">
@@ -235,16 +172,20 @@ function App() {
         <div className="order-page">
           <div className="menu-section">
             <h2 className="section-title">메뉴</h2>
-            <div className="menu-grid">
-              {initialMenus.map(menu => (
-                <MenuCard
-                  key={menu.id}
-                  menu={menu}
-                  inventory={inventory[menu.id] || 0}
-                  onAddToCart={handleAddToCart}
-                />
-              ))}
-            </div>
+            {loading ? (
+              <p>메뉴를 불러오는 중...</p>
+            ) : (
+              <div className="menu-grid">
+                {menus.map(menu => (
+                  <MenuCard
+                    key={menu.id}
+                    menu={menu}
+                    inventory={inventory[menu.id] || 0}
+                    onAddToCart={handleAddToCart}
+                  />
+                ))}
+              </div>
+            )}
           </div>
           
           <div className="cart-section">
@@ -260,14 +201,14 @@ function App() {
 
       {currentPage === 'admin' && (
         <div className="admin-page">
-          <AdminDashboard stats={orderStats} />
+          <AdminDashboard stats={stats} />
           <InventoryStatus 
-            menus={initialMenus}
+            menus={menus}
             inventory={inventory}
             onUpdateInventory={handleUpdateInventory}
           />
           <OrderStatus 
-            orders={sortedOrders}
+            orders={orders}
             onUpdateOrderStatus={handleUpdateOrderStatus}
           />
         </div>

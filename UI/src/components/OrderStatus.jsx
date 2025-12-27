@@ -11,11 +11,18 @@ function OrderStatus({ orders, onUpdateOrderStatus }) {
   }
 
   const formatOrderItems = (items) => {
+    if (!items || !Array.isArray(items)) return ''
+    
     return items.map(item => {
-      const options = []
-      if (item.options.addShot) options.push('샷 추가')
-      if (item.options.addSyrup) options.push('시럽 추가')
-      const optionText = options.length > 0 ? ` (${options.join(', ')})` : ''
+      // options가 문자열(JSON)인 경우 파싱
+      const options = typeof item.options === 'string' 
+        ? JSON.parse(item.options) 
+        : item.options || {}
+      
+      const optionList = []
+      if (options.addShot) optionList.push('샷 추가')
+      if (options.addSyrup) optionList.push('시럽 추가')
+      const optionText = optionList.length > 0 ? ` (${optionList.join(', ')})` : ''
       return `${item.menuName}${optionText} x ${item.quantity}`
     }).join(', ')
   }
