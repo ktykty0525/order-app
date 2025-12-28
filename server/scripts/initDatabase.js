@@ -5,20 +5,17 @@ dotenv.config()
 
 const { Client } = pkg
 
+// Render.com 환경인지 확인 (데이터베이스가 이미 생성되어 있는 경우)
+const IS_RENDER = process.env.RENDER || process.env.DB_HOST?.includes('render.com') || false
 const DB_NAME = process.env.DB_NAME || 'order_app'
 const DB_USER = process.env.DB_USER || 'postgres'
 const DB_PASSWORD = process.env.DB_PASSWORD
 const DB_HOST = process.env.DB_HOST || 'localhost'
 const DB_PORT = process.env.DB_PORT || 5432
 
-// postgres 데이터베이스에 연결 (데이터베이스 생성용)
-const adminClient = new Client({
-  host: DB_HOST,
-  port: DB_PORT,
-  user: DB_USER,
-  password: DB_PASSWORD,
-  database: 'postgres' // 기본 데이터베이스
-})
+// Render.com의 External Database URL을 사용하는 경우 SSL 필요
+// 일반적으로 render.com 호스트는 SSL이 필요함
+const NEEDS_SSL = IS_RENDER || DB_HOST.includes('render.com') || DB_HOST.includes('onrender.com')
 
 // 애플리케이션 데이터베이스에 연결
 const appClient = new Client({
@@ -26,34 +23,55 @@ const appClient = new Client({
   port: DB_PORT,
   user: DB_USER,
   password: DB_PASSWORD,
-  database: DB_NAME
+  database: DB_NAME,
+  // Render.com의 경우 SSL 연결 필요
+  ssl: NEEDS_SSL ? { rejectUnauthorized: false } : false
 })
 
 async function initDatabase() {
   try {
     console.log('🔄 데이터베이스 초기화를 시작합니다...')
+    console.log(`📍 환경: ${IS_RENDER ? 'Render.com' : '로컬'}`)
     
-    // 1. postgres 데이터베이스에 연결
-    await adminClient.connect()
-    console.log('✅ postgres 데이터베이스에 연결되었습니다.')
+    // Render.com이 아닌 경우에만 데이터베이스 생성 시도
+    if (!IS_RENDER) {
+      // postgres 데이터베이스에 연결 (데이터베이스 생성용)
+      const adminClient = new Client({
+        host: DB_HOST,
+        port: DB_PORT,
+        user: DB_USER,
+        password: DB_PASSWORD,
+        database: 'postgres', // 기본 데이터베이스
+        ssl: NEEDS_SSL ? { rejectUnauthorized: false } : false
+      })
 
-    // 2. 데이터베이스 존재 여부 확인 및 생성
-    const dbCheckResult = await adminClient.query(
-      `SELECT 1 FROM pg_database WHERE datname = $1`,
-      [DB_NAME]
-    )
+      try {
+        await adminClient.connect()
+        console.log('✅ postgres 데이터베이스에 연결되었습니다.')
 
-    if (dbCheckResult.rows.length === 0) {
-      console.log(`📦 데이터베이스 '${DB_NAME}' 생성 중...`)
-      await adminClient.query(`CREATE DATABASE ${DB_NAME}`)
-      console.log(`✅ 데이터베이스 '${DB_NAME}' 생성 완료!`)
+        // 데이터베이스 존재 여부 확인 및 생성
+        const dbCheckResult = await adminClient.query(
+          `SELECT 1 FROM pg_database WHERE datname = $1`,
+          [DB_NAME]
+        )
+
+        if (dbCheckResult.rows.length === 0) {
+          console.log(`📦 데이터베이스 '${DB_NAME}' 생성 중...`)
+          await adminClient.query(`CREATE DATABASE ${DB_NAME}`)
+          console.log(`✅ 데이터베이스 '${DB_NAME}' 생성 완료!`)
+        } else {
+          console.log(`ℹ️  데이터베이스 '${DB_NAME}'가 이미 존재합니다.`)
+        }
+
+        await adminClient.end()
+      } catch (error) {
+        console.log(`ℹ️  데이터베이스 생성 단계를 건너뜁니다: ${error.message}`)
+      }
     } else {
-      console.log(`ℹ️  데이터베이스 '${DB_NAME}'가 이미 존재합니다.`)
+      console.log('ℹ️  Render.com 환경: 데이터베이스는 이미 생성되어 있습니다.')
     }
 
-    await adminClient.end()
-
-    // 3. 애플리케이션 데이터베이스에 연결
+    // 애플리케이션 데이터베이스에 연결
     await appClient.connect()
     console.log(`✅ 데이터베이스 '${DB_NAME}'에 연결되었습니다.`)
 
